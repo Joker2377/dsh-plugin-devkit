@@ -46,7 +46,7 @@
     "@deepseek-ai/dsh-tools": ">=0.1.0-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test \"test/**/*.test.mjs\"",
     "test:sandbox": "node --test --test-isolation=none \"test/**/*.test.mjs\""
   },
   "dsh": {

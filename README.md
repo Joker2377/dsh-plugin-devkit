@@ -110,7 +110,8 @@ dsh-plugin-devkit doctor . --json                 # 給腳本用
 
 | 症狀 | 可能原因 | 處理 |
 | --- | --- | --- |
-| DSH 沙箱裡 `npm test` 噴 `spawn EPERM` | `node --test <目錄>` 會為每個檔案開子行程，沙箱擋掉了 | 改跑 `npm run test:sandbox`，或直接 `node test/bundle.test.mjs` |
+| DSH 沙箱裡 `npm test` 噴 `spawn EPERM` | 預設的測試 runner 會為每個檔案開子行程，沙箱擋掉了 | 改跑 `npm run test:sandbox`，或直接 `node test/bundle.test.mjs` |
+| CI 上 `npm test` 噴 `ERR_UNSUPPORTED_DIR_IMPORT` | `node --test test/` 把目錄當成單一測試檔去 spawn | 用這個 repo 的寫法：`node --test "test/**/*.test.mjs"` |
 | `plugin_scaffold` 寫到不是你想要的目錄 | 相對路徑以 host 行程的 cwd 為基準，不是你 session 的工作目錄 | 傳絕對路徑；回覆一定會印出實際用掉的絕對路徑 |
 | doctor 說 patch「有 N 處讀不懂」 | 它只懂 `insert` / `override` 的常見寫法 | 照它指的行號人工看過那幾行 |
 | 安裝時被 `incompatible-version` 拒 | 宣告的範圍不接受執行中的 DSH | 先跑 `plugin_doctor(hostVersion: ...)` 看是哪一條，再決定改範圍還是改支援的版本 |

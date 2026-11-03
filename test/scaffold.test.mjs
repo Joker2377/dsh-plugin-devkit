@@ -45,7 +45,7 @@ test('manifest 宣告了 DSH 需要的欄位', () => {
 	assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
 	assert.match(manifest.engines.dsh, /^>=/)
 	assert.ok(manifest.peerDependencies['@deepseek-ai/dsh-tools'])
-	assert.equal(manifest.scripts.test, 'node --test test/')
+	assert.equal(manifest.scripts.test, 'node --test "test/**/*.test.mjs"')
 })
 
 test('patch 插入一列，id 與模組名對得上', () => {
