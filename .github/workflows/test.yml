@@ -1,0 +1,34 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [22.x, 24.x]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      # No dependency install: the suite imports only node: builtins and lib/.
+      - name: Syntax check
+        run: |
+          node --check lib/index.js
+          node --check lib/tools.js
+          node --check scripts/cli.mjs
+      - name: Tests
+        run: npm test
+      - name: Dogfood the CLI on this repo
+        run: node scripts/cli.mjs doctor .

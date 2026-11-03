@@ -1,0 +1,9 @@
+# dsh-plugin-devkit — 外掛開發的工具箱
+#
+# 兩個模型可用工具：
+#   · plugin_scaffold —— 產出一個已經通過檢查的 bundle 骨架
+#   · plugin_doctor   —— 讀既有 bundle，說出「裝不起來」的原因
+- insert:
+    - id: plugin-devkit
+      name: dsh-plugin-devkit
+      config: {}

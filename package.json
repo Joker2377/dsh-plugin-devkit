@@ -1,0 +1,57 @@
+{
+  "name": "dsh-plugin-devkit",
+  "version": "0.1.0",
+  "description": "Scaffold a DeepSeek Harness bundle and diagnose one before you install it: package_shape, patch, entry, docs and the install-time compatibility verdict, as two host tools and a CLI.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./lib/checks.js": "./lib/checks.js",
+    "./lib/semver.js": "./lib/semver.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-plugin-devkit": "./scripts/cli.mjs"
+  },
+  "files": [
+    "lib",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "bundle",
+    "scaffold",
+    "devkit",
+    "lint"
+  ],
+  "author": "Joker2377",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Joker2377/dsh-plugin-devkit.git"
+  },
+  "homepage": "https://github.com/Joker2377/dsh-plugin-devkit#readme",
+  "bugs": {
+    "url": "https://github.com/Joker2377/dsh-plugin-devkit/issues"
+  },
+  "engines": {
+    "node": ">=22.19",
+    "dsh": ">=0.1.1-rc.2 <0.3.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "test:sandbox": "node --test --test-isolation=none \"test/**/*.test.mjs\""
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
