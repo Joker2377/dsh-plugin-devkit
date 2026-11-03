@@ -9,6 +9,7 @@
  */
 
 import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { ScaffoldError, scaffoldFiles } from '../lib/scaffold.js'
 import { diagnose } from '../lib/checks.js'
@@ -22,6 +23,7 @@ const USAGE = `dsh-plugin-devkit — scaffold and check DeepSeek Harness bundles
   dsh-plugin-devkit scaffold <name> [--dir <path>] [--desc <text>] [--tool <suffix>]
                                      [--author <name>] [--no-ci] [--force] [--dry-run]
   dsh-plugin-devkit doctor <dir> [--host-version <version>] [--json]
+  dsh-plugin-devkit audit <spec> [--json] [--registry=<url>] [--profile=<dir>] [--host=<version>]
 
 選項：
   --dir <path>           scaffold 的目標目錄（預設用套件名）
@@ -32,9 +34,12 @@ const USAGE = `dsh-plugin-devkit — scaffold and check DeepSeek Harness bundles
   --force                覆蓋已存在的檔案
   --dry-run              只列出會寫入的檔案
   --host-version <ver>   doctor 額外做安裝期相容性判定
-  --json                 doctor 輸出 JSON
+  --json                 doctor／audit 輸出 JSON
+  --registry=<url>       audit 查詢的 registry（預設 https://registry.npmjs.org）
+  --profile=<dir>        audit 比對版本撞車用的 profile 目錄
+  --host=<ver>           audit 的相容性判定基準（預設讀 DSH_VERSION）
 
-結束碼：0 通過／1 有 error／2 指令本身無法執行
+結束碼：0 可以安裝／1 有 error 或 audit 判 block／2 指令本身無法執行／3 未核查（git、local 這類沒有跑 registry 側檢查）
 `
 
 /**
@@ -75,6 +80,45 @@ function parseArgs(argv) {
  */
 function asString(value) {
 	return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+}
+
+/**
+ * Parse the arguments that follow the `audit` subcommand.
+ *
+ * Split out from `main()` so the exit-code-relevant decisions (which spec, which
+ * overrides, text or JSON) can be tested without spawning a process or touching
+ * the network. A relative `--profile` is made absolute here, at the same place
+ * the other commands resolve their paths.
+ *
+ * @param {string[]} argv tokens after `audit`
+ * @returns {{
+ *   spec?: string,
+ *   format: 'text' | 'json',
+ *   options: { registry?: string, profileDir?: string, hostVersion?: string },
+ *   error?: string,
+ * }}
+ */
+export function parseAuditArgs(argv, env = process.env) {
+	const { positional, flags } = parseArgs(argv)
+	/** @type {{ registry?: string, profileDir?: string, hostVersion?: string }} */
+	const options = {}
+	const registry = asString(flags.registry)
+	if (registry !== undefined) options.registry = registry
+	const profileDir = asString(flags.profile)
+	if (profileDir !== undefined) options.profileDir = resolve(process.cwd(), profileDir)
+	// `--host` wins, then the running Host's own version from the environment.
+	const hostVersion = asString(flags.host) ?? asString(env?.DSH_VERSION)
+	if (hostVersion !== undefined) options.hostVersion = hostVersion
+
+	const parsed = { spec: asString(positional[0]), format: flags.json === true ? 'json' : 'text', options }
+	if (positional.length > 1) {
+		parsed.spec = undefined
+		parsed.error = `audit：只接受一個 spec，多出來的是 ${positional
+			.slice(1)
+			.map((token) => JSON.stringify(token))
+			.join('、')}`
+	}
+	return parsed
 }
 
 /**
@@ -154,15 +198,70 @@ async function main(argv) {
 		return result.ok ? 0 : 1
 	}
 
+	if (command === 'audit') {
+		const parsed = parseAuditArgs(argv.slice(argv.indexOf('audit') + 1))
+		if (parsed.error !== undefined) {
+			process.stderr.write(`${parsed.error}\n`)
+			return 2
+		}
+		if (parsed.spec === undefined) {
+			process.stderr.write(`audit：需要套件 spec，例如 audit lodash@4.17.21\n\n${USAGE}`)
+			return 2
+		}
+
+		let audit
+		let report
+		try {
+			;[audit, report] = await Promise.all([import('../lib/audit.js'), import('../lib/audit-report.js')])
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error)
+			process.stderr.write(`audit：無法載入核查模組（${detail}）\n`)
+			return 2
+		}
+
+		let result
+		try {
+			result = await audit.auditSpec(parsed.spec, parsed.options)
+		} catch (error) {
+			const detail = error instanceof Error ? error.stack ?? error.message : String(error)
+			process.stderr.write(`audit：核查 ${parsed.spec} 時失敗（${detail}）\n`)
+			return 2
+		}
+
+		process.stdout.write(`${report.renderAuditReport(result, { format: parsed.format })}\n`)
+		if (typeof report.auditSummaryLine === 'function') process.stderr.write(`${report.auditSummaryLine(result)}\n`)
+		// 3 is "nothing was checked": neither a pass nor a failure, and no script
+		// should treat it as permission to install.
+		if (result.verdict.install === 'not-audited') return 3
+		return result.verdict.install === 'block' ? 1 : 0
+	}
+
 	process.stderr.write(`不認得的指令：${command}\n\n${USAGE}`)
 	return 2
 }
 
-main(process.argv.slice(2))
-	.then((code) => {
-		process.exitCode = code
-	})
-	.catch((error) => {
-		process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`)
-		process.exitCode = 2
-	})
+/**
+ * Only run when this file is the program, so tests can import `parseAuditArgs`
+ * without a CLI run starting underneath them.
+ *
+ * @param {string[]} argv
+ * @param {string} moduleUrl
+ * @returns {boolean}
+ */
+function isMainModule(argv, moduleUrl) {
+	if (argv[1] === undefined) return false
+	const invoked = resolve(argv[1])
+	const self = resolve(fileURLToPath(moduleUrl))
+	return process.platform === 'win32' ? invoked.toLowerCase() === self.toLowerCase() : invoked === self
+}
+
+if (isMainModule(process.argv, import.meta.url)) {
+	main(process.argv.slice(2))
+		.then((code) => {
+			process.exitCode = code
+		})
+		.catch((error) => {
+			process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`)
+			process.exitCode = 2
+		})
+}

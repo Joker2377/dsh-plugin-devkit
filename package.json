@@ -1,13 +1,18 @@
 {
   "name": "dsh-plugin-devkit",
-  "version": "0.1.0",
-  "description": "Scaffold a DeepSeek Harness bundle and diagnose one before you install it: package_shape, patch, entry, docs and the install-time compatibility verdict, as two host tools and a CLI.",
+  "version": "0.2.0",
+  "description": "Scaffold a DeepSeek Harness bundle, diagnose one before you install it, and audit a published package's supply chain (integrity, install scripts, dependencies, provenance, gitHead, engines.dsh, profile collisions) — as three host tools and a CLI.",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./lib/checks.js": "./lib/checks.js",
     "./lib/semver.js": "./lib/semver.js",
+    "./lib/audit.js": "./lib/audit.js",
+    "./lib/audit-report.js": "./lib/audit-report.js",
+    "./lib/spec.js": "./lib/spec.js",
+    "./lib/registry.js": "./lib/registry.js",
+    "./lib/profile.js": "./lib/profile.js",
     "./package.json": "./package.json"
   },
   "bin": {
@@ -26,7 +31,10 @@
     "bundle",
     "scaffold",
     "devkit",
-    "lint"
+    "lint",
+    "audit",
+    "supply-chain",
+    "npm"
   ],
   "author": "Joker2377",
   "license": "MIT",

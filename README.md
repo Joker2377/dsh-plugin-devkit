@@ -22,6 +22,7 @@
 - **重現 DSH 自己的相容性判定。** `engines.dsh` 存在時只看它；不存在時才逐條檢查 `@deepseek-ai/dsh*` peers，prerelease 也參與比較 —— 跟安裝時擋你的那一條是同一套規則。
 - **README 被當成產品的一部分。** 沒有「安裝」段的 README 會被點名：這個外掛的安裝方式是貼連結，讀者不會自己猜到。
 - **不覆蓋你寫的東西。** 目標檔案已存在就跳過並回報，要覆蓋得明講；也可以 `dryRun` 先看會寫哪些檔。
+- **安裝前先核查來源。** `plugin_audit` 在把別人的套件貼進 profile 之前，先比對 tarball 雜湊、掃 install 腳本、看依賴面與 provenance、判 `engines.dsh` 相容性、比對現有版本 —— 只讀，不裝、不執行對方程式碼。
 
 ## 安裝
 
@@ -106,6 +107,73 @@ dsh-plugin-devkit doctor . --json                 # 給腳本用
 | prerelease 也參與範圍比較（`0.3.0-rc.5` 落在 `<0.3.0` 內） | `semver.satisfies(..., { includePrerelease: true })`，同上 |
 | patch 沒有 insert 就不會插入那一列，等於沒裝 | `plugin_manager` 的 bundle 檢查 |
 
+## 安裝前核查：plugin_audit
+
+`plugin_doctor` 回答的是「你自己寫的 bundle 少了什麼」；`plugin_audit` 回答的是另一個問題：**這個別人寫的套件，現在裝進我的 profile 可不可以**。兩件事都會在安裝時咬你，但檢查的東西完全不同 —— doctor 看檔案結構，audit 看 registry 上的供應鏈訊號。
+
+### 什麼時候用
+
+- 要把一個沒看過的 npm 套件或 GitHub 外掛貼進 **Plugins** 之前。
+- 要升級一個已經在用的外掛，但這次版本落差很大之前。
+- 同事丟來 `@scope/name` 或 `github:owner/repo`，你想先知道它會不會被 DSH 的相容性判定擋掉。
+
+### 怎麼呼叫
+
+跟 agent 說「用 `plugin_audit` 核查 lodash@4.17.21」，或指定細節：
+
+| 參數 | 必填 | 說明 |
+| --- | --- | --- |
+| `spec` | ✔ | `lodash@4.17.21`、`dsh-foo-bar@^0.2`、`@scope/name@1.0.0-rc.1`、`github:owner/repo`、`./path` |
+| `registry` | | 換 mirror 時用；預設 `https://registry.npmjs.org` |
+| `profileDir` | | 版本撞車要比對的 profile；預設是桌面 profile |
+| `hostVersion` | | 相容性判定的基準；沒給就讀環境變數 `DSH_VERSION`，再沒有就明說這一項沒檢查 |
+| `format` | | `text`（預設，給人讀）或 `json`（完整 `AuditResult`，給腳本） |
+
+不開對話也能跑：
+
+```bash
+node scripts/cli.mjs audit lodash@4.17.21
+node scripts/cli.mjs audit dsh-foo-bar@^0.2 --host=0.2.1-rc.5 --json
+node scripts/cli.mjs audit github:owner/repo --registry=https://registry.npmmirror.com
+```
+
+結束碼就是契約：`0` 判 allow、`1` 判 block、`2` 參數或執行環境有問題（例如沒給 spec）、`3` 判 not-audited（沒有跑 registry 側檢查，不能當成通過）。
+
+### 結論怎麼讀
+
+第一行是受檢的 spec，第二行直接給結論 —— **可以安裝**、**不可以安裝 — 第一個阻斷原因**，或 **未核查**（`github:`／本地目錄這類 spec 沒有 registry 側資料可查；這不是通過，CLI 以 exit 3 表示）；第三行是 error／warn／info 的數量與 `已檢查：…` 清單。那份清單是誠實條款：沒列到的項目代表這次沒跑，例如沒給 `hostVersion` 就沒有相容性判定，報告不會把它算成通過。
+
+findings 依嚴重度排序，每條都有可 grep 的 `code`、一行訊息，`→` 後面是具體做法：
+
+| 代碼 | 代表什麼 |
+| --- | --- |
+| `audit/integrity-mismatch`、`audit/dist-missing` | 下載到的 tarball 與 registry 宣告的雜湊對不上，或 `dist` 缺欄位 |
+| `audit/install-script` | 套件會在安裝時執行 `preinstall`／`install`／`postinstall` —— **包括 tarball 內建（`node_modules/…`）的依賴**，根 manifest 乾淨不代表安全 |
+| `audit/patch-js`、`audit/patch-missing` | `dsh.bundle.patch` 含 `!!js`（載入 profile 時會執行），或 manifest 指向的 patch 檔不存在 |
+| `audit/tarball-unreadable` | tarball 解不開：腳本與二進位都無法確認，所以直接阻擋（integrity 仍照原始位元組算） |
+| `audit/manifest-mismatch` | tarball 內的 `package.json` 版本／名稱與 registry 不一致，本身就是可疑訊號 |
+| `audit/profile-source` | profile 內同名依賴來自 `link:`／`github:`，沒有版本範圍可比，改以人工確認 |
+| `audit/compat-undeclared` | 套件沒有宣告 `engines.dsh` 也沒有 DSH peer：沒有任何相容性承諾（不是錯，是風險） |
+| `audit/compat-unmet` | `engines.dsh` 或 `@deepseek-ai/dsh*` peers 不接受你現在跑的版本 |
+| `audit/profile-collision` | profile 已裝的版本不滿足它的依賴範圍 |
+| `audit/version-missing` | registry 沒有這個套件，或沒有符合範圍的版本 |
+| `audit/provenance-missing` | 沒有 npm provenance 簽章（warn，不阻擋） |
+| `audit/dep-surface`、`audit/binding-gyp`、`audit/binary` | 依賴面太大、要現場編譯、或帶原生二進位檔 |
+
+warn 不會阻擋安裝，但要當成「我知道這件事，而且我接受」。`audit/githead-ok` 只代表 `gitHead` 欄位存在，**沒有**向 GitHub 核對過那個 commit；報告的 evidence 也照實標成未核對。
+
+### 判 block 之後怎麼辦
+
+1. 先看 `verdict.blocking` 的第一個代碼，那就是結論的理由。
+2. 供應鏈類的 error（`integrity-mismatch`、`install-script`、`tarball-unreadable`、`version-missing`）沒有「再試一次就好」的解法：換版本、換來源，或不裝。決定要裝，就等於接受安裝期會執行對方指定的程式碼。
+3. 相容性類的 error（`compat-unmet`）先分清是範圍寫死還是你跑錯 Host 版本；`plugin_doctor` 對本地目錄用的是同一套判定，兩邊結論應該一致。
+4. 撞車類（`profile-collision`）先處理既有版本，別讓兩個不相容的版本同時留在同一個 profile。
+5. 決定照裝時把 `--json` 的報告留著 —— 出事時那是唯一能回溯「當初看到什麼」的證據。
+
+### 它的界限
+
+`plugin_audit` 是**唯讀**的：不寫檔、不安裝、不執行套件程式碼、不 spawn npm、不改 profile；唯一的網路行為是讀 registry 與它回報的 tarball。它**不是沙箱**：allow 只代表上面那幾項供應鏈訊號都對得上，不代表程式碼沒有惡意行為 —— 真正的隔離要另外做。
+
 ## 疑難排解
 
 | 症狀 | 可能原因 | 處理 |
@@ -136,7 +204,7 @@ CI 在 `ubuntu-latest` 與 `windows-latest` 上跑 Node 22 與 24：先 `node --
 ## 已知限制
 
 - **沒有 watch／熱重載。** 改完外掛還是要重載 App 才看得到。
-- **不讀 registry。** doctor 不打網路：不查 npm、不驗 tarball 雜湊、不掃 install 腳本。安裝前的供應鏈核查是另一件事，這個工具不做。
+- **doctor 不讀 registry。** `plugin_doctor` 只看本地檔案：不查 npm、不驗 tarball 雜湊、不掃 install 腳本。需要那些判定的場合用 `plugin_audit` —— 它會連 registry，但仍然不裝、不執行對方程式碼。
 - **YAML 只懂一部分。** 讀的是 patch 實際在用的方言（`insert` / `override` 的常見寫法）；複雜的錨點、`!!js`、多行字串會落在「讀不懂」而不是被猜測。
 - **semver 不是完整實作。** 支援比較子、`^`、`~`、`||`、`*`；不支援 hyphen range（`1.2.3 - 2.0.0`），build metadata 直接忽略。
 - **骨架的範例工具是佔位。** `dsh-foo_hello` 只是證明接線通，不改它就是一個沒用的工具。
