@@ -3,12 +3,13 @@
 [![test](https://github.com/Joker2377/dsh-plugin-devkit/actions/workflows/test.yml/badge.svg)](https://github.com/Joker2377/dsh-plugin-devkit/actions/workflows/test.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-*Start a Harness bundle in one step, and find out why yours won't install before your users do.*
+*Start a Harness bundle in one step, find out why yours won't install before your users do, and check the other guy's package before it runs in your profile.*
 
-兩個工具，一個管「開始」，一個管「交出去之前」：
+三個工具，對應外掛生命週期的三個時刻：
 
 - **`plugin_scaffold`** — 開一個外掛骨架。產出來就能跑、就跑得過測試、就通過下面那支檢查。
 - **`plugin_doctor`** — 讀一個外掛，說出「DSH 安裝它會被哪一條擋下來」。
+- **`plugin_audit`** — 讀一個已發佈的套件，說出「現在把它裝進我的 profile 合不合理」。
 
 同一套邏輯也包成一支 CLI，所以你不必開對話也能用。純 host 端外掛，沒有 UI、沒有常駐服務、不改 profile。
 
@@ -35,12 +36,12 @@
    ```
 
 2. 在 DSH 側邊欄打開 **Plugins**，把網址貼進安裝欄位，按 **Install**。
-3. 重新載入 App。之後對話裡就有 `plugin_scaffold` 與 `plugin_doctor` 可以用。
+3. 重新載入 App。之後對話裡就有 `plugin_scaffold`、`plugin_doctor` 與 `plugin_audit` 可以用。
 
 > [!IMPORTANT]
 > 貼倉庫**首頁**網址。`https://github.com/.../tree/main` 這類頁面網址會被拒絕（`a URL must point at a git repository or a tarball`）。
 
-不安裝也能用：取得原始碼後 `node scripts/cli.mjs doctor <目錄>`，CLI 與工具走同一個核心。
+不安裝也能用：取得原始碼後 `node scripts/cli.mjs doctor <目錄>` 或 `node scripts/cli.mjs audit <spec>`，CLI 與工具走同一個核心。
 
 ## 使用
 
@@ -94,7 +95,7 @@ dsh-plugin-devkit doctor . --host-version 0.2.1-rc.5
 dsh-plugin-devkit doctor . --json                 # 給腳本用
 ```
 
-結束碼：`0` 通過、`1` 有 error、`2` 指令本身跑不起來（參數錯、目錄讀不到）。
+結束碼（`scaffold`／`doctor`）：`0` 通過、`1` 有 error、`2` 指令本身跑不起來（參數錯、目錄讀不到）。`audit` 的結束碼見下一節。
 
 ## 這些規則是從哪來的
 
@@ -153,6 +154,7 @@ findings 依嚴重度排序，每條都有可 grep 的 `code`、一行訊息，`
 | `audit/tarball-unreadable` | tarball 解不開：腳本與二進位都無法確認，所以直接阻擋（integrity 仍照原始位元組算） |
 | `audit/manifest-mismatch` | tarball 內的 `package.json` 版本／名稱與 registry 不一致，本身就是可疑訊號 |
 | `audit/profile-source` | profile 內同名依賴來自 `link:`／`github:`，沒有版本範圍可比，改以人工確認 |
+| `audit/profile-unparsable`、`audit/tarball-offhost` | 候選寫的範圍讀不懂所以略過比較；或 tarball 由 registry 以外的 CDN 主機提供（info，不是錯） |
 | `audit/compat-undeclared` | 套件沒有宣告 `engines.dsh` 也沒有 DSH peer：沒有任何相容性承諾（不是錯，是風險） |
 | `audit/compat-unmet` | `engines.dsh` 或 `@deepseek-ai/dsh*` peers 不接受你現在跑的版本 |
 | `audit/profile-collision` | profile 已裝的版本不滿足它的依賴範圍 |
@@ -184,28 +186,33 @@ warn 不會阻擋安裝，但要當成「我知道這件事，而且我接受」
 | doctor 說 patch「有 N 處讀不懂」 | 它只懂 `insert` / `override` 的常見寫法 | 照它指的行號人工看過那幾行 |
 | 安裝時被 `incompatible-version` 拒 | 宣告的範圍不接受執行中的 DSH | 先跑 `plugin_doctor(hostVersion: ...)` 看是哪一條，再決定改範圍還是改支援的版本 |
 | 產出的工具在 DSH 裡沒出現 | 沒有重載 App，或 patch 沒插入那一列 | 重載；用 `plugin_doctor` 確認 patch 有 insert |
+| `audit` 回「未核查」且 exit 3 | 這個 spec 是 `github:` 或本地目錄，registry 側沒有 integrity／provenance 可查 | 要核查就指向已發佈的 registry 版本；本地目錄改用 `plugin_doctor`。這不是通過 |
+| `audit` 說 `version-missing` | 套件不存在，或你給的範圍內沒有版本（例如只有 prerelease，而範圍沒寫到） | 先 `npm view <name> versions` 對一次；或把範圍寫成完整三段 |
+| `audit` 說 `provenance-unreachable` | attestation 服務暫時不可用，不是「沒有簽章」 | 稍後重跑；不要把它當成有簽章 |
 
 ## 運作原理
 
-- **核心是純函式。** `scaffold.js` 只回傳「檔案路徑 → 內容」，`checks.js` 只吃「路徑 → 內容」的快照，`semver.js` 與 `yaml.js` 沒有任何 IO。所以規則可以脫離 DSH 測試，工具與 CLI 也不可能各說各話。
+- **核心是純函式。** `scaffold.js` 只回傳「檔案路徑 → 內容」，`checks.js` 只吃「路徑 → 內容」的快照，`semver.js` 與 `yaml.js` 沒有任何 IO；`spec.js` 只解析字串，`tar.js` 只解一個 Buffer，`profile.js` 只讀一個目錄，`audit.js` 把 `fetch` 與 registry client 當參數注入。所以規則可以脫離 DSH 測試，工具與 CLI 也不可能各說各話。
 - **工具只做接線。** `tools.js` 把純核心接到檔案系統：寫入前檢查既有檔案、回報絕對路徑、把結果整理成給人看的文字。
 - **不猜版本。** 相容性判定需要 `hostVersion`，拿不到就明說略過，不從環境裡找一個看起來像版本的東西。
 
 ## 開發
 
 ```bash
-npm test                 # 34 個測試，不需要安裝依賴，也不需要 DSH
+npm test                 # 110 個測試，不需要安裝依賴，也不需要 DSH（全部離線）
 npm run test:sandbox     # 同一套測試，不開子行程（在 DSH 沙箱內用這個）
-node scripts/cli.mjs doctor .   # 對自己跑一次（dogfood）
+node scripts/cli.mjs doctor .                  # 對自己跑一次（dogfood）
+node scripts/cli.mjs audit lodash@4.17.21      # 真的連 registry（需要網路）
 ```
 
-CI 在 `ubuntu-latest` 與 `windows-latest` 上跑 Node 22 與 24：先 `node --check` 三個入口，再 `npm test`，最後對本 repo 跑一次 `doctor .`。
+CI 在 `ubuntu-latest` 與 `windows-latest` 上跑 Node 22 與 24：先對入口與 audit 模組做 `node --check`，再 `npm test`（110 個測試，全部離線，不連 registry），最後對本 repo 跑一次 `doctor .`。
 
 ## 已知限制
 
 - **沒有 watch／熱重載。** 改完外掛還是要重載 App 才看得到。
 - **doctor 不讀 registry。** `plugin_doctor` 只看本地檔案：不查 npm、不驗 tarball 雜湊、不掃 install 腳本。需要那些判定的場合用 `plugin_audit` —— 它會連 registry，但仍然不裝、不執行對方程式碼。
 - **YAML 只懂一部分。** 讀的是 patch 實際在用的方言（`insert` / `override` 的常見寫法）；複雜的錨點、`!!js`、多行字串會落在「讀不懂」而不是被猜測。
-- **semver 不是完整實作。** 支援比較子、`^`、`~`、`||`、`*`；不支援 hyphen range（`1.2.3 - 2.0.0`），build metadata 直接忽略。
+- **semver 不是完整實作。** 支援比較子、`^`、`~`、`||`、`*`、部分版本（`1`、`1.2`、`1.x`）與 hyphen range（`1.2.3 - 2.0.0`）；build metadata 直接忽略。範圍寫到它讀不懂時會明說「無法比較」，不會默默判定不相容或相容。
+- **audit 只查供應鏈訊號，不查惡意。** 它證明的是「雜湊對得上、安裝期沒有未經檢視的腳本、宣告的相容性成立」，不是「這段程式碼安全」。真正的隔離要靠最小權限與可丟棄的環境。
 - **骨架的範例工具是佔位。** `dsh-foo_hello` 只是證明接線通，不改它就是一個沒用的工具。
 - **不代你安裝、不改 profile、不建 repo。** 它只寫檔案。

@@ -27,6 +27,12 @@ jobs:
         run: |
           node --check lib/index.js
           node --check lib/tools.js
+          node --check lib/audit.js
+          node --check lib/audit-report.js
+          node --check lib/spec.js
+          node --check lib/registry.js
+          node --check lib/profile.js
+          node --check lib/tar.js
           node --check scripts/cli.mjs
       - name: Tests
         run: npm test
