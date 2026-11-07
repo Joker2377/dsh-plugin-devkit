@@ -5,11 +5,12 @@
 
 *Start a Harness bundle in one step, find out why yours won't install before your users do, and check the other guy's package before it runs in your profile.*
 
-三個工具，對應外掛生命週期的三個時刻：
+四個工具，對應外掛生命週期的四個時刻：
 
 - **`plugin_scaffold`** — 開一個外掛骨架。產出來就能跑、就跑得過測試、就通過下面那支檢查。
 - **`plugin_doctor`** — 讀一個外掛，說出「DSH 安裝它會被哪一條擋下來」。
 - **`plugin_audit`** — 讀一個已發佈的套件，說出「現在把它裝進我的 profile 合不合理」。
+- **`plugin_inspect`** — 裝完之後，說出「它在 Host 裡真的載入了嗎」。
 
 同一套邏輯也包成一支 CLI，所以你不必開對話也能用。純 host 端外掛，沒有 UI、沒有常駐服務、不改 profile。
 
@@ -36,7 +37,7 @@
    ```
 
 2. 在 DSH 側邊欄打開 **Plugins**，把網址貼進安裝欄位，按 **Install**。
-3. 重新載入 App。之後對話裡就有 `plugin_scaffold`、`plugin_doctor` 與 `plugin_audit` 可以用。
+3. 重新載入 App。之後對話裡就有 `plugin_scaffold`、`plugin_doctor`、`plugin_audit` 與 `plugin_inspect` 可以用。
 
 > [!IMPORTANT]
 > 貼倉庫**首頁**網址。`https://github.com/.../tree/main` 這類頁面網址會被拒絕（`a URL must point at a git repository or a tarball`）。
@@ -84,7 +85,7 @@ plugin_doctor(dir: "C:/path/to/dsh-foo", hostVersion: "0.2.1-rc.5")
 | warn | 載得進去但會踩到：patch 的 `name` 與套件名不符、README 沒安裝段、沒有 LICENSE、相容性範圍不接受執行中的版本 | 不一定 |
 | info | 少了會可惜：沒有 CI、`keywords` 沒帶 `dsh-plugin` | 不會 |
 
-檢查的項目：manifest（`name` / `version` / `type` / `main` 與 `exports` 的目標檔 / `files` 覆蓋範圍 / `peerDependencies`）、patch（insert id 合法性與重複、模組名、給了 config 卻沒有 `Config` 匯出）、入口（`name` / `apply` / 與套件名是否一致）、文件（README 安裝段、LICENSE）、測試與 CI。全部唯讀。
+檢查的項目：manifest（`name` / `version` / `type` / `main` 與 `exports` 的目標檔 / `files` 覆蓋範圍 / `peerDependencies`）、patch（insert id 合法性與重複、模組名）、入口（`name` / `apply` / 與套件名是否一致、`Config` 是否為 standard-schema）、`engines.dsh` 上限是否放行下一版 prerelease、文件（README 安裝段、LICENSE）、測試與 CI。全部唯讀。
 
 ### 命令列
 
@@ -97,6 +98,33 @@ dsh-plugin-devkit doctor . --json                 # 給腳本用
 
 結束碼（`scaffold`／`doctor`）：`0` 通過、`1` 有 error、`2` 指令本身跑不起來（參數錯、目錄讀不到）。`audit` 的結束碼見下一節。
 
+## 裝完之後：plugin_inspect
+
+`application=applied` 只代表安裝完成。dsh-repo-ops 0.1.1 安裝成功，載入時才失敗，九個工具都沒註冊。`plugin_inspect` 把三個來源對起來：profile 的宣告、磁碟上的檔案、Cordis loader 的即時狀態。
+
+跟 agent 說「用 `plugin_inspect` 看 dsh-foo 有沒有載入」，或不指定名稱檢查整個 profile。
+
+| state | 意思 |
+| --- | --- |
+| `active` | 正在執行 |
+| `failed` | 載入失敗，報告附上錯誤訊息 |
+| `disabled` | 已安裝但停用 |
+| `loading` | 還在載入 |
+| `not-loaded` | 在 bundle 清單裡，但 loader 沒有執行中的 entry，通常要重啟 |
+| `not-selected` | 已安裝，但不在 bundle 清單裡 |
+| `not-installed` | 宣告了但檔案不在，或 `link:` 目標被搬走 |
+| `unknown` | 讀不到 loader，只做了靜態檢查 |
+
+CLI 不在 Host 裡，所以只有靜態檢查，state 都是 `unknown`：
+
+```bash
+dsh-plugin-devkit inspect                       # 整個 desktop profile
+dsh-plugin-devkit inspect dsh-foo --host=0.2.2-rc.1
+dsh-plugin-devkit inspect --profile=<dir> --json
+```
+
+有 error 時結束碼是 `1`。全程唯讀，也不會執行任何 bundle 的程式碼。
+
 ## 這些規則是從哪來的
 
 不是你我的口味，是 DSH 安裝時的實際行為：
@@ -107,6 +135,7 @@ dsh-plugin-devkit doctor . --json                 # 給腳本用
 | 沒有 `engines.dsh` 時，每個 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer 都要接受執行中的版本 | 同上 |
 | prerelease 也參與範圍比較（`0.3.0-rc.5` 落在 `<0.3.0` 內） | `semver.satisfies(..., { includePrerelease: true })`，同上 |
 | patch 沒有 insert 就不會插入那一列，等於沒裝 | `plugin_manager` 的 bundle 檢查 |
+| 匯出 `Config` 就必須是 standard-schema；沒匯出時 config 原樣傳給 `apply` | `resolveConfig()`，`@deepseek-ai/cordis` |
 
 ## 安裝前核查：plugin_audit
 
@@ -199,13 +228,13 @@ warn 不會阻擋安裝，但要當成「我知道這件事，而且我接受」
 ## 開發
 
 ```bash
-npm test                 # 110 個測試，不需要安裝依賴，也不需要 DSH（全部離線）
+npm test                 # 不需要安裝依賴，也不需要 DSH（全部離線）
 npm run test:sandbox     # 同一套測試，不開子行程（在 DSH 沙箱內用這個）
 node scripts/cli.mjs doctor .                  # 對自己跑一次（dogfood）
 node scripts/cli.mjs audit lodash@4.17.21      # 真的連 registry（需要網路）
 ```
 
-CI 在 `ubuntu-latest` 與 `windows-latest` 上跑 Node 22 與 24：先對入口與 audit 模組做 `node --check`，再 `npm test`（110 個測試，全部離線，不連 registry），最後對本 repo 跑一次 `doctor .`。
+CI 在 `ubuntu-latest` 與 `windows-latest` 上跑 Node 22 與 24：先對入口與 audit 模組做 `node --check`，再 `npm test`（全部離線，不連 registry），最後對本 repo 跑一次 `doctor .`。
 
 ## 已知限制
 
@@ -215,4 +244,6 @@ CI 在 `ubuntu-latest` 與 `windows-latest` 上跑 Node 22 與 24：先對入口
 - **semver 不是完整實作。** 支援比較子、`^`、`~`、`||`、`*`、部分版本（`1`、`1.2`、`1.x`）與 hyphen range（`1.2.3 - 2.0.0`）；build metadata 直接忽略。範圍寫到它讀不懂時會明說「無法比較」，不會默默判定不相容或相容。
 - **audit 只查供應鏈訊號，不查惡意。** 它證明的是「雜湊對得上、安裝期沒有未經檢視的腳本、宣告的相容性成立」，不是「這段程式碼安全」。真正的隔離要靠最小權限與可丟棄的環境。
 - **骨架的範例工具是佔位。** `dsh-foo_hello` 只是證明接線通，不改它就是一個沒用的工具。
+- **`Config` 只做靜態判斷。** doctor 與 inspect 不執行被檢查的程式碼，所以只能判定字面物件；zod schema 或重新匯出的 `Config` 會標成未驗證。
+- **`plugin_inspect` 列不出工具名稱。** 它回報的是 entry 的載入狀態，不是每個工具有沒有註冊。
 - **不代你安裝、不改 profile、不建 repo。** 它只寫檔案。

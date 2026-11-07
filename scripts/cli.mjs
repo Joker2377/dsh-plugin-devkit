@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Command line for the same two jobs the tools do, for use outside a session.
+ * Command line for the same jobs the tools do, for use outside a session.
  *
  * The exit code is the contract: 0 clean, 1 the diagnosis found errors, 2 the
  * command itself could not run (bad arguments, unreadable directory).
@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url'
 
 import { ScaffoldError, scaffoldFiles } from '../lib/scaffold.js'
 import { diagnose } from '../lib/checks.js'
+import { inspectProfile, inspectSummaryLine, renderInspectReport } from '../lib/inspect.js'
+import { DEFAULT_PROFILE_DIR } from '../lib/profile.js'
 import { readProject } from '../lib/project.js'
 import { renderReport, summaryLine } from '../lib/report.js'
 import { writeScaffold } from '../lib/write.js'
@@ -24,6 +26,7 @@ const USAGE = `dsh-plugin-devkit — scaffold and check DeepSeek Harness bundles
                                      [--author <name>] [--no-ci] [--force] [--dry-run]
   dsh-plugin-devkit doctor <dir> [--host-version <version>] [--json]
   dsh-plugin-devkit audit <spec> [--json] [--registry=<url>] [--profile=<dir>] [--host=<version>]
+  dsh-plugin-devkit inspect [name] [--json] [--profile=<dir>] [--host=<version>]
 
 選項：
   --dir <path>           scaffold 的目標目錄（預設用套件名）
@@ -34,10 +37,10 @@ const USAGE = `dsh-plugin-devkit — scaffold and check DeepSeek Harness bundles
   --force                覆蓋已存在的檔案
   --dry-run              只列出會寫入的檔案
   --host-version <ver>   doctor 額外做安裝期相容性判定
-  --json                 doctor／audit 輸出 JSON
+  --json                 doctor／audit／inspect 輸出 JSON
   --registry=<url>       audit 查詢的 registry（預設 https://registry.npmjs.org）
-  --profile=<dir>        audit 比對版本撞車用的 profile 目錄
-  --host=<ver>           audit 的相容性判定基準（預設讀 DSH_VERSION）
+  --profile=<dir>        audit、inspect 讀取的 profile 目錄（預設 desktop profile）
+  --host=<ver>           audit、inspect 的相容性判定基準（預設讀 DSH_VERSION）
 
 結束碼：0 可以安裝／1 有 error 或 audit 判 block／2 指令本身無法執行／3 未核查（git、local 這類沒有跑 registry 側檢查）
 `
@@ -234,6 +237,18 @@ async function main(argv) {
 		// should treat it as permission to install.
 		if (result.verdict.install === 'not-audited') return 3
 		return result.verdict.install === 'block' ? 1 : 0
+	}
+
+	if (command === 'inspect') {
+		// Outside a running Host there is no loader, so this is the static half only.
+		const result = await inspectProfile({
+			profileDir: resolve(process.cwd(), asString(flags.profile) ?? DEFAULT_PROFILE_DIR),
+			name: asString(positional[1]),
+			hostVersion: asString(flags.host) ?? asString(process.env.DSH_VERSION),
+		})
+		process.stdout.write(`${flags.json === true ? JSON.stringify(result, null, 2) : renderInspectReport(result)}\n`)
+		process.stderr.write(`${inspectSummaryLine(result)}\n`)
+		return result.ok ? 0 : 1
 	}
 
 	process.stderr.write(`不認得的指令：${command}\n\n${USAGE}`)

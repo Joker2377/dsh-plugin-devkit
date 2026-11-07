@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-devkit",
-  "version": "0.2.0",
-  "description": "Scaffold a DeepSeek Harness bundle, diagnose one before you install it, and audit a published package's supply chain — three host tools (plugin_scaffold, plugin_doctor, plugin_audit) plus a CLI.",
+  "version": "0.3.0",
+  "description": "Scaffold a DeepSeek Harness bundle, diagnose one before you install it, audit a published package's supply chain, and confirm what actually loaded — four host tools (plugin_scaffold, plugin_doctor, plugin_audit) plus a CLI.",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -48,7 +48,7 @@
   },
   "engines": {
     "node": ">=22.19",
-    "dsh": ">=0.1.1-rc.2 <0.3.0"
+    "dsh": ">=0.1.1-rc.2 <0.3.0-0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": ">=0.1.0-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0"

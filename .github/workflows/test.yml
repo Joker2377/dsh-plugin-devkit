@@ -29,6 +29,7 @@ jobs:
           node --check lib/tools.js
           node --check lib/audit.js
           node --check lib/audit-report.js
+          node --check lib/inspect.js
           node --check lib/spec.js
           node --check lib/registry.js
           node --check lib/profile.js
