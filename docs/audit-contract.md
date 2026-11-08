@@ -150,6 +150,6 @@ description 要寫清楚：唯讀、不安裝、不執行套件程式碼、回�
 
 ## 測試規則
 
-- `npm run test:sandbox`（`--test-isolation=none`），沙箱內會 spawn 的 `node --test "test/**"` 可能被擋。
+- `npm run test:sandbox`（`--experimental-test-isolation=none`），沙箱內會 spawn 的 `node --test "test/**"` 可能被擋。
 - 全部測試離線：注入假 `fetch`／假 registry client，不連網。需要真網路的測試以 `process.env.DSH_AUDIT_LIVE === '1'` 守門。
 - 每個模組至少覆蓋：正常路徑、錯誤路徑（與對應 code）、唯讀性（呼叫前後檔案雜湊不變，涉及 profile 的測試在 `os.tmpdir()` 造 profile）。
