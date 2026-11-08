@@ -25,7 +25,8 @@ test('本 repo 的 manifest 與 patch 彼此對得上', async () => {
 	const project = await readProject(repoRoot)
 	const manifest = JSON.parse(project.files['package.json'])
 	assert.equal(manifest.name, name)
-	assert.equal(manifest.version, '0.3.0')
+	// 只驗格式：寫死版本號會讓每次發版的 bump commit 自己把 CI 打紅。
+	assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
 	assert.ok(inject.includes('tools'))
 	assert.match(project.files['cordis.patch.yml'], /id: plugin-devkit/)
 	assert.match(project.files['cordis.patch.yml'], /name: dsh-plugin-devkit/)
