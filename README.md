@@ -60,6 +60,8 @@
 | `README.md` | 給使用者的說明（安裝／使用／疑難排解），不是給維護者的工作日誌 |
 | `LICENSE`、`.gitignore`、`.github/workflows/test.yml` | 交出去之前你不想補的那些 |
 
+外掛不給模型呼叫、只聽 host 的 session 事件（工作列、通知、紀錄）時，加 `kind: events`（CLI：`--kind events`）。這時沒有 `lib/tools.js`、沒有 `inject`、也不宣告 dsh peer；`lib/index.js` 是純函式 `observe()` 加上 `ctx.on('session/event')` 接線，停用時會撤掉 handler，測試也驗這一點。
+
 接下來四步：
 
 ```bash

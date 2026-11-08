@@ -71,6 +71,9 @@ test('README 有安裝段——檢查器也要求的那一段', () => {
 	assert.match(readme, /^## 安裝$/m)
 	assert.match(readme, /^## 疑難排解$/m)
 	assert.match(readme, /Plugins/)
+	// dsh-plugin-workflow 的 check.mjs 要求這八段且照這個順序；骨架一產出就要過。
+	const headings = [...readme.matchAll(/^## (.+)$/gm)].map((match) => match[1])
+	assert.deepEqual(headings, ['功能', '安裝', '使用', '疑難排解', '運作原理', '開發', '已知限制', '授權'])
 })
 
 test('名稱與 slug 的正規化', () => {
@@ -81,6 +84,42 @@ test('名稱與 slug 的正規化', () => {
 	assert.throws(() => scaffoldFiles({ name: '@me/dsh-Foo_Bar' }), ScaffoldError)
 	assert.throws(() => scaffoldFiles({ name: 'Bad_Name' }), ScaffoldError)
 	assert.throws(() => scaffoldFiles({}), ScaffoldError)
+})
+
+test('kind=events：沒有工具檔、沒有 inject、沒有 dsh peer；不認得的 kind 直接拒絕', () => {
+	const files = build({ kind: 'events' })
+	assert.equal(files.some((file) => file.path === 'lib/tools.js'), false)
+	const entry = contentOf(files, 'lib/index.js')
+	assert.doesNotMatch(entry, /export const inject/)
+	assert.match(entry, /ctx\.on\('session\/event'/)
+	assert.match(entry, /ctx\.on\('session\/disposed'/)
+	assert.equal(JSON.parse(contentOf(files, 'package.json')).peerDependencies, undefined)
+	assert.throws(() => build({ kind: 'client' }), ScaffoldError)
+})
+
+/** Write a scaffold to a temp dir and run its own generated tests there. */
+async function runGeneratedTests(options) {
+	const dir = await mkdtemp(join(tmpdir(), 'devkit-scaffold-'))
+	try {
+		for (const file of build(options)) {
+			const target = join(dir, file.path)
+			await mkdir(dirname(target), { recursive: true })
+			await writeFile(target, file.content, 'utf8')
+		}
+		const { spawnSync } = await import('node:child_process')
+		// Without this the child inherits the parent runner's binary IPC stream instead of printing a report.
+		const { NODE_TEST_CONTEXT: _, ...env } = process.env
+		return spawnSync(process.execPath, ['--test', '--test-isolation=none', 'test/bundle.test.mjs'], { cwd: dir, env, encoding: 'utf8' })
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+}
+
+test('兩種骨架自帶的測試都能直接跑綠', async () => {
+	for (const kind of ['tool', 'events']) {
+		const run = await runGeneratedTests({ kind })
+		assert.equal(run.status, 0, `${kind} 骨架的測試失敗：\n${run.stdout}\n${run.stderr}`)
+	}
 })
 
 test('產出的 bundle 真的載得起來，apply() 與工具都跑得動', async () => {

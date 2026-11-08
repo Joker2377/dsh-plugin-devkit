@@ -22,7 +22,7 @@ import { writeScaffold } from '../lib/write.js'
 const USAGE = `dsh-plugin-devkit — scaffold and check DeepSeek Harness bundles
 
 用法：
-  dsh-plugin-devkit scaffold <name> [--dir <path>] [--desc <text>] [--tool <suffix>]
+  dsh-plugin-devkit scaffold <name> [--dir <path>] [--desc <text>] [--kind tool|events] [--tool <suffix>]
                                      [--author <name>] [--no-ci] [--force] [--dry-run]
   dsh-plugin-devkit doctor <dir> [--host-version <version>] [--json]
   dsh-plugin-devkit audit <spec> [--json] [--registry=<url>] [--profile=<dir>] [--host=<version>]
@@ -31,6 +31,7 @@ const USAGE = `dsh-plugin-devkit — scaffold and check DeepSeek Harness bundles
 選項：
   --dir <path>           scaffold 的目標目錄（預設用套件名）
   --desc <text>          manifest 與入口檔頭的一行說明
+  --kind <tool|events>   tool：註冊一個工具（預設）；events：不註冊工具，只聽 session 事件
   --tool <suffix>        範例工具的後綴（預設 hello）
   --author <name>        LICENSE 與 manifest 的著作權人
   --no-ci                不產生 .github/workflows/test.yml
@@ -150,7 +151,8 @@ async function main(argv) {
 				description: asString(flags.desc),
 				tool: asString(flags.tool),
 				author: asString(flags.author),
-				ci: flags['no-ci'] !== true
+				ci: flags['no-ci'] !== true,
+				kind: asString(flags.kind)
 			})
 		} catch (error) {
 			if (error instanceof ScaffoldError) {
