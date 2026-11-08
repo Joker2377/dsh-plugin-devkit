@@ -109,7 +109,8 @@ async function runGeneratedTests(options) {
 		const { spawnSync } = await import('node:child_process')
 		// Without this the child inherits the parent runner's binary IPC stream instead of printing a report.
 		const { NODE_TEST_CONTEXT: _, ...env } = process.env
-		return spawnSync(process.execPath, ['--test', '--test-isolation=none', 'test/bundle.test.mjs'], { cwd: dir, env, encoding: 'utf8' })
+		// Run the file directly: node:test still reports and sets the exit code, and no runner flag differs across Node 22/24.
+		return spawnSync(process.execPath, ['test/bundle.test.mjs'], { cwd: dir, env, encoding: 'utf8' })
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}
