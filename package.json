@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-devkit",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Scaffold a DeepSeek Harness bundle, diagnose one before you install it, audit a published package's supply chain, and confirm what actually loaded — four host tools (plugin_scaffold, plugin_doctor, plugin_audit) plus a CLI.",
   "type": "module",
   "main": "./lib/index.js",
