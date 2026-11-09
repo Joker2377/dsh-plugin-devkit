@@ -96,9 +96,10 @@ dsh-plugin-devkit scaffold dsh-foo --desc "一行說明" --author "你的名字"
 dsh-plugin-devkit scaffold dsh-foo --dry-run      # 只看會寫什麼
 dsh-plugin-devkit doctor . --host-version 0.2.1-rc.5
 dsh-plugin-devkit doctor . --json                 # 給腳本用
+dsh-plugin-devkit events <session.v4.jsonl.zstd> --type turn/end   # 見「用真實事件重現」
 ```
 
-結束碼（`scaffold`／`doctor`）：`0` 通過、`1` 有 error、`2` 指令本身跑不起來（參數錯、目錄讀不到）。`audit` 的結束碼見下一節。
+結束碼（`scaffold`／`doctor`）：`0` 通過、`1` 有 error、`2` 指令本身跑不起來（參數錯、目錄讀不到）。`events` 成功時回 `0`；參數錯、檔案讀不到、frame 截斷或損壞時回 `2`。`audit` 的結束碼見下一節。
 
 ## 裝完之後：plugin_inspect
 
@@ -126,6 +127,20 @@ dsh-plugin-devkit inspect --profile=<dir> --json
 ```
 
 有 error 時結束碼是 `1`。全程唯讀，也不會執行任何 bundle 的程式碼。
+
+## 用真實事件重現：events
+
+事件型外掛的 bug 常常是「假事件綠、真 host 壞」：假事件少了欄位，或形狀不同（例如真實 `tool/call` 的 `arguments` 是 JSON 字串）。`events` 從 session log 取出真實事件，存成測試 fixture：
+
+```bash
+dsh-plugin-devkit events ~/.dsh/sessions/<workspace>/<session>/session.v4.jsonl.zstd \
+  --type turn/start,turn/end --from 120 --to 260 > test/fixtures/issue-12.json
+```
+
+測試讀這個檔，把每個事件依序餵給 `observe()`，斷言出事的那個狀態。預設依鍵名遮蔽：只有白名單鍵（`type`、`kind`、`role`、`name`、`callId` 這類型別標籤與 id）的字串，而且看起來像識別字時才保留；其他字串一律換成 `<redacted>`，包括對話、檔案內容、路徑和網址。工具參數（`arguments`）是 JSON 字串，裡面的字串一律遮蔽（白名單不適用），只留鍵、數字與布林，結果仍可 `JSON.parse`。鍵名、數字、布林與巢狀結構原樣保留。`--raw` 保留原文，但這種輸出不要 commit。
+
+> [!WARNING]
+> 白名單是從 2026-11-09 的真實 log 整理的。鍵名本身不會遮蔽，白名單鍵的值也可能帶有使用者自訂的名稱。commit 前要看過 fixture。
 
 ## 這些規則是從哪來的
 

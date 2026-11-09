@@ -8,6 +8,7 @@
  * @module dsh-plugin-devkit/cli
  */
 
+import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -17,6 +18,7 @@ import { inspectProfile, inspectSummaryLine, renderInspectReport } from '../lib/
 import { DEFAULT_PROFILE_DIR } from '../lib/profile.js'
 import { readProject } from '../lib/project.js'
 import { renderReport, summaryLine } from '../lib/report.js'
+import { readSessionLog, selectEvents } from '../lib/session-log.js'
 import { writeScaffold } from '../lib/write.js'
 
 const USAGE = `dsh-plugin-devkit — scaffold and check DeepSeek Harness bundles
@@ -27,6 +29,7 @@ const USAGE = `dsh-plugin-devkit — scaffold and check DeepSeek Harness bundles
   dsh-plugin-devkit doctor <dir> [--host-version <version>] [--json]
   dsh-plugin-devkit audit <spec> [--json] [--registry=<url>] [--profile=<dir>] [--host=<version>]
   dsh-plugin-devkit inspect [name] [--json] [--profile=<dir>] [--host=<version>]
+  dsh-plugin-devkit events <session.v4.jsonl.zstd> [--type a,b] [--from <seq>] [--to <seq>] [--raw]
 
 選項：
   --dir <path>           scaffold 的目標目錄（預設用套件名）
@@ -42,6 +45,9 @@ const USAGE = `dsh-plugin-devkit — scaffold and check DeepSeek Harness bundles
   --registry=<url>       audit 查詢的 registry（預設 https://registry.npmjs.org）
   --profile=<dir>        audit、inspect 讀取的 profile 目錄（預設 desktop profile）
   --host=<ver>           audit、inspect 的相容性判定基準（預設讀 DSH_VERSION）
+  --type a,b             events 只留這些事件型別
+  --from／--to <seq>     events 只留這段 seq（含兩端）
+  --raw                  events 不遮蔽字串（含對話原文，不要 commit）
 
 結束碼：0 可以安裝／1 有 error 或 audit 判 block／2 指令本身無法執行／3 未核查（git、local 這類沒有跑 registry 側檢查）
 `
@@ -129,6 +135,46 @@ export function parseAuditArgs(argv, env = process.env) {
  * @param {string[]} argv
  * @returns {Promise<number>} exit code
  */
+/**
+ * Parse the arguments after `events`. Stricter than `parseArgs`: an unknown or
+ * misspelled flag would otherwise pass silently and print every event, which
+ * reads as a filtered fixture. `--raw` is a switch and never takes a value.
+ *
+ * @param {string[]} argv tokens after `events`
+ * @returns {{ file?: string, options: { types?: string[], from?: number, to?: number, raw: boolean }, error?: string }}
+ */
+export function parseEventsArgs(argv) {
+	/** @type {{ types?: string[], from?: number, to?: number, raw: boolean }} */
+	const options = { raw: false }
+	const files = []
+	const fail = (error) => ({ options, error })
+	for (let index = 0; index < argv.length; index += 1) {
+		const token = argv[index]
+		if (!token.startsWith('--')) {
+			files.push(token)
+			continue
+		}
+		const [flag, inline] = token.slice(2).split(/=(.*)/s)
+		if (flag === 'raw') {
+			if (inline !== undefined) return fail('--raw 是開關，不接值')
+			options.raw = true
+			continue
+		}
+		if (!['type', 'from', 'to'].includes(flag)) return fail(`不認得的選項 --${flag}（只有 --type、--from、--to、--raw）`)
+		const value = inline ?? argv[++index]
+		if (value === undefined || value.startsWith('--') || value.trim() === '') return fail(`--${flag} 要給值`)
+		if (flag === 'type') {
+			options.types = value.split(',').map((type) => type.trim()).filter(Boolean)
+			continue
+		}
+		const seq = Number(value)
+		if (!Number.isInteger(seq)) return fail(`--${flag} 要是整數 seq，收到 ${JSON.stringify(value)}`)
+		options[flag] = seq
+	}
+	if (files.length !== 1) return fail(files.length === 0 ? '要給 session.v4.jsonl.zstd 的路徑' : `只接受一個檔案，收到 ${files.length} 個`)
+	return { file: files[0], options }
+}
+
 async function main(argv) {
 	if (argv.includes('--help') || argv.includes('-h') || argv.length === 0) {
 		process.stdout.write(USAGE)
@@ -251,6 +297,24 @@ async function main(argv) {
 		process.stdout.write(`${flags.json === true ? JSON.stringify(result, null, 2) : renderInspectReport(result)}\n`)
 		process.stderr.write(`${inspectSummaryLine(result)}\n`)
 		return result.ok ? 0 : 1
+	}
+
+	if (command === 'events') {
+		const parsed = parseEventsArgs(argv.slice(1))
+		if (parsed.error !== undefined) {
+			process.stderr.write(`events：${parsed.error}\n`)
+			return 2
+		}
+		let events
+		try {
+			events = selectEvents(readSessionLog(await readFile(resolve(process.cwd(), parsed.file))), parsed.options)
+		} catch (error) {
+			process.stderr.write(`events：${error instanceof Error ? error.message : String(error)}\n`)
+			return 2
+		}
+		process.stdout.write(`[\n${events.map((event) => `\t${JSON.stringify(event)}`).join(',\n')}\n]\n`)
+		process.stderr.write(`${events.length} 個事件${parsed.options.raw ? '（未遮蔽，含對話原文）' : '（已遮蔽）'}\n`)
+		return 0
 	}
 
 	process.stderr.write(`不認得的指令：${command}\n\n${USAGE}`)
