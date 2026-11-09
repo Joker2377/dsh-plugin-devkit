@@ -97,6 +97,12 @@ test('kind=events：沒有工具檔、沒有 inject、沒有 dsh peer；不認�
 	assert.throws(() => build({ kind: 'client' }), ScaffoldError)
 })
 
+test('kind=events：假 tool/call 的 arguments 跟 host 一樣是 JSON 字串', () => {
+	// Real session logs store tool/call.data.arguments as a JSON string; a fake object passes tests and breaks on the host.
+	const generated = contentOf(build({ kind: 'events' }), 'test/bundle.test.mjs')
+	assert.match(generated, /type: 'tool\/call'[^\n]*arguments: '\{\}'/)
+})
+
 /** Write a scaffold to a temp dir and run its own generated tests there. */
 async function runGeneratedTests(options) {
 	const dir = await mkdtemp(join(tmpdir(), 'devkit-scaffold-'))
