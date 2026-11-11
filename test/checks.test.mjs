@@ -122,3 +122,43 @@ test('找不到測試檔與 CI 時只做提醒', () => {
 	assert.ok(codes.includes('ci/missing'))
 	assert.equal(has(bare, 'test/missing'), true)
 })
+
+test('exports 萬用字元路徑匹配到實際檔案就不報 missing', () => {
+	const broken = snapshot()
+	broken['package.json'] = JSON.stringify({
+		name: 'dsh-foo-bar',
+		version: '1.0.0',
+		type: 'module',
+		main: './lib/index.js',
+		exports: { '.': './lib/index.js', './locale/*.json': './locale/*.json' },
+		dsh: { bundle: { patch: './cordis.patch.yml' } }
+	})
+	broken['locale/zh.json'] = '{}\n'
+	assert.equal(has(broken, 'manifest/exports-missing'), false)
+})
+
+test('exports 萬用字元路徑沒有檔案符合就照樣報 missing', () => {
+	const broken = snapshot()
+	broken['package.json'] = JSON.stringify({
+		name: 'dsh-foo-bar',
+		version: '1.0.0',
+		type: 'module',
+		main: './lib/index.js',
+		exports: { '.': './lib/index.js', './locales/*.json': './locales/*.json' },
+		dsh: { bundle: { patch: './cordis.patch.yml' } }
+	})
+	assert.equal(has(broken, 'manifest/exports-missing'), true)
+})
+
+test('exports 明確路徑缺檔案照樣報 missing', () => {
+	const broken = snapshot()
+	broken['package.json'] = JSON.stringify({
+		name: 'dsh-foo-bar',
+		version: '1.0.0',
+		type: 'module',
+		main: './lib/index.js',
+		exports: { '.': './lib/index.js', './locale/zh.json': './locale/zh.json' },
+		dsh: { bundle: { patch: './cordis.patch.yml' } }
+	})
+	assert.equal(has(broken, 'manifest/exports-missing'), true)
+})
